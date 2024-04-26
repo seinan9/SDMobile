@@ -6,7 +6,9 @@ A Stable Diffusion backend and GUI for mobile.
 
 - [x] Basic model loading (SD 1.5)
 - [x] Image generation with basic parameters (+ Compel)
-- [ ] Img2img
+- [x] Img2img
 - [ ] ControlNet
 - [ ] IPAdapter
-- [ ] Upscale
+- [x] Upscale (basic)
+- [ ] VRAM management (unload unused data from vram)
+- [ ] Add batch generation

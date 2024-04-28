@@ -8,70 +8,73 @@ from diffusers import (
     EulerAncestralDiscreteScheduler)
 from hidiffusion import apply_hidiffusion, remove_hidiffusion
 
-
-SCHEDULERS = [
-    "DPM++ SDE"
-    "DPM++ SDE Karras"
-    "DPM++ 2M",
-    "DPM++ 2M Karras",
-    "Euler",
-    "Euler Karras"
-    "Euler a",
-    "Euler a Karras"
-]
+from backend.config import Config
+from backend.utils import (
+    convert_to_model_name,
+    convert_to_model_path,
+    join_paths,
+    list_dir)
 
 
 class PipelineManager():
 
+    SCHEDULERS = [
+        "DPM++ SDE",
+        "DPM++ SDE Karras",
+        "DPM++ 2M",
+        "DPM++ 2M Karras",
+        "Euler",
+        "Euler Karras",
+        "Euler a",
+        "Euler a Karras"
+    ]
+
+    available_models: list
+    model_name: str
     pipeline: StableDiffusionPipeline
     scheduler: str
-    device: str
-    model_name: str
     compel: Compel
     hidiffusion_applied: bool
 
-    def load_pipeline(self, model_path, scheduler, device):
+    def __init__(self):
+        self.fetch_available_models()
+        self.model_name = None
+        self.pipeline = None
+        self.scheduler = None
+        self.compel = None
+        self.hidiffusion_applied = False
+
+    def load_pipeline(self, model_name):
+        self.model_name = model_name
         self.pipeline = StableDiffusionPipeline.from_single_file(
-            pretrained_model_link_or_path=model_path,
+            pretrained_model_link_or_path=convert_to_model_path(Config.HOME.value, model_name),
             torch_dtype=torch.float16,
             use_safetensors=True
         )
-        self.set_scheduler(scheduler)
-        self.move_pipeline(device)
-        self.model_name = model_path.split("\\")[-1].split(".")[0]
         self.compel = Compel(
             text_encoder=self.pipeline.text_encoder,
             tokenizer=self.pipeline.tokenizer)
         self.hidiffusion_applied = False
+        self.move_pipeline(Config.DEVICE.value)
 
     def move_pipeline(self, device):
         self.pipeline.to(device)
-        self.device = device
 
     def remove_pipeline(self):
         self.pipeline = None
         self.model_name = None
         torch.cuda.empty_cache()
 
-    def apply_hidiffusion(self):
-        apply_hidiffusion(self.pipeline)
-        self.hidiffusion_applied = True
-
-    def remove_hidiffusion(self):
-        remove_hidiffusion(self.pipeline)
-        self.hidiffusion_applied = False
-
-    def update_state(self, model_path, apply_hidiffusion, scheduler):
-        model_name = model_path.split("\\")[-1].split(".")[0]
-        if self.model_name != None:
-            if self.model_name != model_name:
+    def update_pipeline(self, model_name, scheduler, use_hidiffusion):
+        if self.model_name != model_name:
+            if self.model_name != None:
                 self.remove_pipeline()
-                self.load_pipeline(model_path, self.device)
+            self.load_pipeline(model_name)
 
-        if scheduler != self.scheduler:
+        if self.scheduler != scheduler:
             self.set_scheduler(scheduler)
 
-        if apply_hidiffusion:
+        if use_hidiffusion:
             if not self.hidiffusion_applied:
                 self.apply_hidiffusion()
         else:
@@ -106,6 +109,19 @@ class PipelineManager():
 
         self.scheduler = scheduler
 
+    def fetch_available_models(self):
+        model_dir = join_paths(Config.HOME.value, "models")
+        self.available_models = [convert_to_model_name(
+            model_path) for model_path in list_dir(model_dir)]
+
+    def apply_hidiffusion(self):
+        apply_hidiffusion(self.pipeline)
+        self.hidiffusion_applied = True
+
+    def remove_hidiffusion(self):
+        remove_hidiffusion(self.pipeline)
+        self.hidiffusion_applied = False
+
     def queue_pipeline(self, seed, width, height, steps, guidance_scale, positive_prompt, negative_prompt):
         positive_embeds = self.compel(positive_prompt)
         negative_embeds = self.compel(negative_prompt)
@@ -116,6 +132,6 @@ class PipelineManager():
             height=height,
             num_inference_steps=steps,
             guidance_scale=guidance_scale,
-            positive_embeds=positive_embeds,
+            prompt_embeds=positive_embeds,
             negative_prompt_embeds=negative_embeds
         ).images[0]
